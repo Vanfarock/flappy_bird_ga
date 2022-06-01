@@ -4,15 +4,16 @@ import pygame
 import random
 
 COLORS = {
+    "white": (255, 255, 255),
     "red": (255, 0, 0),
-    "green": (0, 255, 0),
+    "green": (14, 120, 56),
 }
 GRAVITY = 80
 MAX_FPS = 60
-DISTANCE_BETWEEN_PIPES = 400
+DISTANCE_BETWEEN_PIPES = 500
 MIN_GAP = 100
-MAX_GAP = 150
-PIXELS_PER_SECOND = 300
+MAX_GAP = 100
+PIXELS_PER_SECOND = 1000
 
 current_fps = MAX_FPS
 camera_speed = PIXELS_PER_SECOND / current_fps
@@ -24,6 +25,7 @@ class Game:
         self.running = True
         self.screen = pygame.display.set_mode((width, height))
         self.clock = pygame.time.Clock()
+        self.font = None
         self.genetic = Genetic()
 
         self.camera = None
@@ -31,13 +33,18 @@ class Game:
         self.pipes = []
         self.first_pipe = None
 
+        self.best_score = 0
+
         self.reset()
 
     def run(self):
         pygame.init()
 
+        self.font = pygame.font.Font(None, 54)
+        
         gen = 1
         print("Gen ", gen)
+        
         while self.running:
             self.clock.tick(MAX_FPS)
             
@@ -73,15 +80,31 @@ class Game:
 
         for pipe in self.pipes:
             pipe.draw(self.screen)
+        
+        self.draw_score()
+
+    def draw_score(self):
+        offset = 30
+        bestScoreText = self.font.render(f"Best score: {self.best_score}", True, COLORS["white"])
+        scoreText = self.font.render(f"Score: {self.score}", True, COLORS["white"])
+        self.screen.blit(bestScoreText, (self.screen.get_width() - bestScoreText.get_width() - offset, offset))
+        self.screen.blit(scoreText, (self.screen.get_width() - bestScoreText.get_width() - offset, offset * 2 + bestScoreText.get_height()))
 
     def update(self):
         self.camera.update()
         
         for player in self.players:
             player.update(self.screen, self.first_pipe)
+            
             if player.should_jump():
                 player.jump()
-        
+
+        if len(self.players) > 0:
+            self.score = self.players[0].score
+
+        if self.score > self.best_score:
+            self.best_score = self.score
+
         self.update_internal_pipes()
         self.update_internal_players()
         self.update_internal_clock()
@@ -93,9 +116,17 @@ class Game:
         if self.first_pipe.is_out():
             self.pipes.pop(0)
             self.first_pipe = self.pipes[0]
-            
             last_pipe = self.pipes[len(self.pipes) - 1]
             self.pipes.append(Pipe(self.screen, self.camera, last_pipe.initial_pos[0] + DISTANCE_BETWEEN_PIPES))
+
+        # if len(self.players) > 0 and self.players[0].passed_pipe(self.first_pipe):
+        #     self.first_pipe = self.pipes[1]
+
+        # if self.pipes[0].is_out():
+        #     self.pipes.pop(0)
+            
+        #     last_pipe = self.pipes[len(self.pipes) - 1]
+        #     self.pipes.append(Pipe(self.screen, self.camera, last_pipe.initial_pos[0] + DISTANCE_BETWEEN_PIPES))
 
     def update_internal_players(self):
         for (i, player) in enumerate(self.players):
@@ -117,8 +148,9 @@ class Game:
     def reset(self):
         self.camera = Camera()
         self.players = self.genetic.next_gen(self.screen)
-        self.pipes = [Pipe(self.screen, self.camera, DISTANCE_BETWEEN_PIPES * i) for i in range(1, 3)]
+        self.pipes = [Pipe(self.screen, self.camera, DISTANCE_BETWEEN_PIPES * i) for i in range(1, 10)]
         self.first_pipe = self.pipes[0]
+        self.score = 0
 
 
 class Camera:
@@ -133,8 +165,7 @@ class Pipe:
     def __init__(self, screen: pygame.Surface, camera: Camera, start_x: int):
         height = screen.get_height()
 
-        # self.initial_pos = (start_x, random.randint(int((height * 3) / 6), int((height * 4) / 6)))
-        self.initial_pos = (start_x, random.randint(MIN_GAP + 10 , height - MIN_GAP - 10))
+        self.initial_pos = (start_x, random.randint(MIN_GAP + 50 , height - MIN_GAP - 50))
         self.pos = (self.initial_pos[0] - camera.pos[0], self.initial_pos[1])
         self.gap = random.randint(MIN_GAP, MAX_GAP)
         self.width = 100
@@ -154,10 +185,10 @@ class Player:
     def __init__(self, screen: pygame.Surface, cofactors: 'list[float]'):
         self.color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
         self.size = 30
-        self.pos = (100, screen.get_height() / 2 - self.size / 2)
+        self.pos = (50, screen.get_height() / 2 - self.size / 2)
         self.acceleration_y = GRAVITY / current_fps
         self.speed_y = self.acceleration_y / current_fps
-        self.jump_force = 200
+        self.jump_force = 250
         
         self.score = 0
         self.last_passed_pipe = None
@@ -178,8 +209,8 @@ class Player:
         self.speed_y -= self.acceleration_y / current_fps
         self.pos = (self.pos[0], self.pos[1] - self.speed_y)
 
-        self.sensors = self.update_sensors(screen, first_pipe)
-        
+        self.sensors = self.update_sensors(first_pipe)
+
         if self.passed_pipe(first_pipe) and first_pipe != self.last_passed_pipe:
             self.last_passed_pipe = first_pipe
             self.score += 1
@@ -187,10 +218,14 @@ class Player:
         if self.should_die(screen, first_pipe):
             self.is_dead = True
 
+    def new_score(self, first_pipe: Pipe):
+        self.score += 1
+        self.last_passed_pipe = first_pipe
+
     def should_jump(self):
         return self.sensors[0] * self.cofactors[0] + self.sensors[1] * self.cofactors[1] + self.sensors[2] * self.cofactors[2] > 0
 
-    def update_sensors(self, screen: pygame.Surface, first_pipe: Pipe) -> 'list[int]':
+    def update_sensors(self, first_pipe: Pipe) -> 'list[int]':
         sensors = []
 
         # [0] - Left pipe sensor
@@ -205,7 +240,7 @@ class Player:
         return sensors
 
     def passed_pipe(self, pipe: Pipe):
-        return self.pos[0] >= pipe.pos[0] + pipe.width
+        return self.pos[0] + self.size >= pipe.pos[0]
 
     def should_die(self, screen: pygame.Surface, first_pipe: Pipe):
         hit_ground = self.pos[1] + self.size > screen.get_height()
