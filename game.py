@@ -9,7 +9,9 @@ COLORS = {
 }
 GRAVITY = 80
 MAX_FPS = 60
-GAP_BETWEEN_PIPES = 600
+DISTANCE_BETWEEN_PIPES = 400
+MIN_GAP = 100
+MAX_GAP = 150
 PIXELS_PER_SECOND = 300
 
 current_fps = MAX_FPS
@@ -23,7 +25,7 @@ class Game:
         self.screen = pygame.display.set_mode((width, height))
         self.clock = pygame.time.Clock()
         self.genetic = Genetic()
-        
+
         self.camera = None
         self.players = []
         self.pipes = []
@@ -34,6 +36,8 @@ class Game:
     def run(self):
         pygame.init()
 
+        gen = 1
+        print("Gen ", gen)
         while self.running:
             self.clock.tick(MAX_FPS)
             
@@ -46,6 +50,8 @@ class Game:
             self.update()
 
             if self.should_reset():
+                gen += 1
+                print("Gen ", gen)
                 self.reset()
 
             pygame.display.flip()
@@ -89,7 +95,7 @@ class Game:
             self.first_pipe = self.pipes[0]
             
             last_pipe = self.pipes[len(self.pipes) - 1]
-            self.pipes.append(Pipe(self.screen, self.camera, last_pipe.initial_pos[0] + GAP_BETWEEN_PIPES))
+            self.pipes.append(Pipe(self.screen, self.camera, last_pipe.initial_pos[0] + DISTANCE_BETWEEN_PIPES))
 
     def update_internal_players(self):
         for (i, player) in enumerate(self.players):
@@ -111,7 +117,7 @@ class Game:
     def reset(self):
         self.camera = Camera()
         self.players = self.genetic.next_gen(self.screen)
-        self.pipes = [Pipe(self.screen, self.camera, GAP_BETWEEN_PIPES * i) for i in range(1, 3)]
+        self.pipes = [Pipe(self.screen, self.camera, DISTANCE_BETWEEN_PIPES * i) for i in range(1, 3)]
         self.first_pipe = self.pipes[0]
 
 
@@ -127,9 +133,10 @@ class Pipe:
     def __init__(self, screen: pygame.Surface, camera: Camera, start_x: int):
         height = screen.get_height()
 
-        self.initial_pos = (start_x, random.randint(int((height * 3) / 6), int((height * 4) / 6)))
+        # self.initial_pos = (start_x, random.randint(int((height * 3) / 6), int((height * 4) / 6)))
+        self.initial_pos = (start_x, random.randint(MIN_GAP + 10 , height - MIN_GAP - 10))
         self.pos = (self.initial_pos[0] - camera.pos[0], self.initial_pos[1])
-        self.gap = random.randint(int(height  / 6.5), int(height / 3))
+        self.gap = random.randint(MIN_GAP, MAX_GAP)
         self.width = 100
     
     def is_out(self):
@@ -144,7 +151,7 @@ class Pipe:
 
 
 class Player:
-    def __init__(self, screen: pygame.Surface, parameters: 'list[int]'):
+    def __init__(self, screen: pygame.Surface, cofactors: 'list[float]'):
         self.color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
         self.size = 30
         self.pos = (100, screen.get_height() / 2 - self.size / 2)
@@ -156,13 +163,11 @@ class Player:
         self.last_passed_pipe = None
         self.is_dead = False
 
-        # [0] - Ground sensor
-        # [1] - Left pipe sensor
-        # [2] - Right pipe sensor
-        # [3] - Top pipe sensor
-        # [4] - Bottom right pipe sensor
+        # [0] - Left pipe sensor
+        # [1] - Top pipe sensor
+        # [2] - Bottom right pipe sensor
         self.sensors = []
-        self.parameters = parameters
+        self.cofactors = cofactors
         self.fitness = 0
  
     def draw(self, screen: pygame.Surface):
@@ -183,28 +188,18 @@ class Player:
             self.is_dead = True
 
     def should_jump(self):
-        return self.sensors[0] <= self.parameters[0] or ((
-            self.sensors[1] <= self.parameters[1]) and (
-            self.sensors[2] <= self.parameters[2]) and (
-            self.sensors[3] <= self.parameters[3]) and (
-            self.sensors[4] <= self.parameters[4]))
+        return self.sensors[0] * self.cofactors[0] + self.sensors[1] * self.cofactors[1] + self.sensors[2] * self.cofactors[2] > 0
 
     def update_sensors(self, screen: pygame.Surface, first_pipe: Pipe) -> 'list[int]':
         sensors = []
 
-        # [0] - Ground sensor
-        sensors.append(screen.get_height() - (self.pos[1] + self.size))
-
-        # [1] - Left pipe sensor
+        # [0] - Left pipe sensor
         sensors.append(first_pipe.pos[0] - (self.pos[0] + self.size))
 
-        # [2] - Right pipe sensor
-        sensors.append((first_pipe.pos[0] + first_pipe.width) - (self.pos[0] + self.size))
-
-        # [3] - Top pipe sensor
+        # [1] - Top pipe sensor
         sensors.append(first_pipe.pos[1] - self.pos[1])
 
-        # [4] - Bottom right pipe sensor
+        # [2] - Bottom right pipe sensor
         sensors.append((first_pipe.pos[1] + first_pipe.gap) - (self.pos[1] + self.size))
 
         return sensors
